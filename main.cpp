@@ -9,9 +9,14 @@ int main() {
             .addLayer(3, 0, ActiFuncType::SIGM)
             .addLayer(4, 0.5, ActiFuncType::SIGM)
             .addLayer(3, -0.5, ActiFuncType::RELU)
-            .finish();
-    std::vector<double> inputs{1, 2, 3};
-    std::vector<double> results = nn->feedForward(inputs);
+            .build();
+    std::vector<double> inputs{0.91, 0.22, 0.63};
+    std::cout << "INPUT: ";
+    for(auto input: inputs)
+        std::cout << "[ " << input << " ]";
+    std::cout << std::endl;
+    std::vector<double> results = nn->feedForward(inputs, true);
+    std::cout << std::endl << "RESULT: ";
     for(auto result: results)
         std::cout << "[ " << result << " ]";
     std::cout << std::endl;

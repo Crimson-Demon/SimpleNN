@@ -6,9 +6,9 @@ int main() {
     NNBuilder builder;
     auto* nn = builder
             .start()
-            .addLayer(3, 0, ActiFuncType::SIGM)
-            .addLayer(4, 0.5, ActiFuncType::SIGM)
-            .addLayer(3, -0.5, ActiFuncType::RELU)
+            .addInputLayer(3)
+            .addLayer(4, 0.5, ActivationType::SIGM)
+            .addLayer(3, -0.5, ActivationType::RELU)
             .build();
     std::vector<double> inputs{0.91, 0.22, 0.63};
     std::cout << "INPUT: ";

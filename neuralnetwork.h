@@ -127,107 +127,65 @@ public:
 
 typedef std::tuple<unsigned, double, std::shared_ptr<ActivationFunction>, std::map<int, std::vector<int>>> LayerDef;
 
+typedef std::vector<std::pair<std::vector<double>, double>> Data;
+
 class NeuralNetwork {
 
     // todo: make it so we can substitute whole networks into computation nodes (additional abstraction layer)
     class Node;
     typedef std::shared_ptr<Node> NodePtr;
-    class Edge;
-    typedef std::shared_ptr<Edge> EdgePtr;
     class Layer;
     typedef std::shared_ptr<Layer> LayerPtr;
 
-//    std::vector<NodePtr> inputLayer;
     std::vector<Layer> layers;
     // todo: probably a vector as vals instead of a map would be better
-    //std::vector<NodePtr> nodes;
     std::shared_ptr<CostFunction> func;
     static std::default_random_engine generator;
     static std::uniform_real_distribution<double> distribution;
 
-    class Edge {
-        // todo: do we need both sides?
-        NodePtr in;
-        NodePtr out;
-        double weight;
-    public:
-        Edge(NodePtr in, NodePtr out, double weight): in(std::move(in)), out(std::move(out)), weight(weight) { }
-        double getWeight() const { return weight; }
-        /*NodePtr otherEnd(NodePtr const& n) const {
-            if(n.get() == in.get())
-                return out;
-            else if(n.get() == out.get())
-                return in;
-            else
-                throw std::runtime_error("Vertex does not belong to given edge\n");
-        }*/
-        NodePtr getInNode() const { return in; }
-        NodePtr getOutNode() const { return out; }
-    };
-
     class Node {
         double bias;
-//        std::vector<double> inputs;
         double input;
-        double output;
-        std::vector<NodePtr> inputNodes;
-//        std::vector<EdgePtr> inputNodes;
+//        double output;
+//        std::vector<NodePtr> inputNodes;
         std::map<NodePtr, double> outgoingEdges;
-//        std::vector<EdgePtr> outputNodes;
         std::shared_ptr<ActivationFunction> func;
 
     public:
         Node(double bias, std::shared_ptr<ActivationFunction> func) : bias(bias), func(std::move(func)) { }
 
-        double getBias() const { return bias; }
-
-        double getOutput() const { return output; }
-
-//        void putInput(double x) { inputs.push_back(x); }
-
-//        void putInputNode(EdgePtr const& edge) { inputNodes.push_back(edge); }
+        void putInput(double x) { input += x; }
 
         void putOutputNode(NodePtr nPtr, double weight) { outgoingEdges.emplace(nPtr, weight); }
 
         void print() {
             std::cout << "[b:{" << bias << "}";
-            if(!outputNodes.empty()) {
+            if(!outgoingEdges.empty()) {
                 std::cout << ",w:{";
-                for (unsigned i = 0; i < outputNodes.size(); ++i) {
-                    if (i != outputNodes.size() - 1)
-                        std::cout << outputNodes[i].get()->getWeight() << ",";
-                    else
-                        std::cout << outputNodes[i].get()->getWeight() << "}";
+                for(auto const& [node, weight] : outgoingEdges) {
+                    std::cout << weight << ",";
                 }
+                std::cout << "}";
             }
             std::cout << "]";
         }
 
-        void feedforward(double val) {
-            for(auto& node: outputNodes)
-                node.get()->getOutNode().get()->putInput(val);
-        }
+        void feedForward(bool verbose) {
+            for(auto& [node, weight]: outgoingEdges) {
+                node.get()->putInput(compute(weight));
 
-        void backpropagate();
-
-        double compute() {
-            if(isInput()) {
-                double ret = 0;
-                for(unsigned i = 0; i < inputs.size(); ++i)
-                    ret += inputs[i] * 1;
-                inputs.clear();
-                output = func->value(ret + bias);
-                return output;
-            } else {
-                assert(inputs.size() == inputNodes.size());
-                double ret = 0;
-                for(unsigned i = 0; i < inputs.size(); ++i)
-                    ret += inputs[i] * inputNodes[i].get()->getWeight();
-                inputs.clear();
-                output = func->value(ret + bias);
-                return output;
+                if(verbose)
+                    node.get()->print();
             }
         }
+
+        double compute(double weight) {
+            return func->value(weight*input + bias);
+        }
+
+        void backpropagate() {
+
+        };
     };
 
     class Layer {
@@ -268,6 +226,20 @@ class NeuralNetwork {
                 nodes.push_back(nPtr);
             }
         }
+
+        void putInput(std::vector<double>& input) {
+            assert(input.size() == nodes.size());
+
+            for(unsigned i = 0; i < input.size(); ++i)
+                nodes.at(i).get()->putInput(input.at(i));
+        }
+
+        void feedForward(bool verbose) {
+            if(verbose)
+                std::cout << "LAYER " << layerNum << ": ";
+            for(auto& node : nodes)
+                node.get()->feedForward(verbose);
+        }
     };
 
 public:
@@ -282,7 +254,6 @@ public:
         unsigned layerCount = 0;
         std::reverse(layerDefs.begin(), layerDefs.end()); // we go from end to beginning
         for(auto const& layerDef: layerDefs) {
-
             // Create new node layer
             Layer currLayer(layerCount, layerDef, nextLayer);
             layers.push_back(currLayer);
@@ -294,14 +265,14 @@ public:
 
     ~NeuralNetwork() = default;
 
-    void train(std::vector<std::pair<double, double>> trainingData, unsigned epochs, unsigned miniBatchSize, double learningRate, bool verbose) {
+    void train(Data trainingData, unsigned epochs, unsigned miniBatchSize, double learningRate, bool verbose) {
         for(unsigned i = 0; i < epochs; ++i) {
 
             // shuffle training data
             std::shuffle(trainingData.begin(), trainingData.end(), generator);
 
             // create mini batches
-            std::vector<std::vector<std::pair<double, double>>> miniBatches = prepareBatches(trainingData, miniBatchSize); // typedef vec<pair<double, double>> into data
+            std::vector<Data> miniBatches = prepareBatches(trainingData, miniBatchSize);
 
             // train on mini batches
             for(auto& miniBatch: miniBatches) {
@@ -313,19 +284,18 @@ public:
         }
     }
 
-//private:
-    void train(std::vector<std::pair<double, double>> const& miniBatch, double learningRate, bool verbose) {
+    std::vector<double> predict(std::vector<double> inputs, bool verbose) {
 
     }
 
-    std::vector<std::vector<std::pair<double, double>>> prepareBatches(std::vector<std::pair<double, double>> trainingData, unsigned miniBatchSize) {
-        std::vector<std::vector<std::pair<double, double>>> miniBatches;
+private:
+    std::vector<Data> prepareBatches(const Data& trainingData, unsigned miniBatchSize) {
+        std::vector<Data> miniBatches;
         unsigned currBatchSize = 0, currBatchNum = 0;
-        for(auto& data : trainingData)
-        for(unsigned j = 0; j < trainingData.size(); ++j) {
+        for(auto& data : trainingData) {
             // todo: this double checking of curr batch size isnt too elegant
             if(currBatchSize == 0) {
-                miniBatches.emplace_back(std::vector<std::pair<double, double>>());
+                miniBatches.emplace_back(Data());
             }
             miniBatches[currBatchNum].push_back(data);
             currBatchNum = currBatchSize == 0 ? currBatchNum + 1 : currBatchNum;
@@ -335,43 +305,22 @@ public:
         return miniBatches;
     }
 
-    std::vector<double> feedForward(std::vector<double> inputs, bool verbose) {
-        assert(inputs.size() == inputLayer.size());
-
-        for(unsigned i = 0; i < inputs.size(); ++i)
-            inputLayer[i].get()->putInput(inputs[i]);
-
-        std::vector<double> results;
-
-        unsigned layerCount = 0;
-
-        if(verbose)
-            std::cout << "LAYER " << layerCount << ": ";
-
-        for(auto &currentNode: nodes) {
-            double val = currentNode.get()->compute();
-
-            if(currentNode.get()->isOutput())
-                results.push_back(val);
-            else
-                currentNode.get()->feedforward(val);
-
-            if(verbose) {
-                if(currentNode.get()->getLayer() == layerCount) {
-                    currentNode.get()->print();
-                } else {
-                    layerCount++;
-                    std::cout << std::endl;
-                    std::cout << "LAYER " << layerCount << ": ";
-                    currentNode.get()->print();
-                }
-            }
+    void train(const Data& miniBatch, double learningRate, bool verbose) {
+        std::vector<double> batchOutput;
+        for(const auto& [input, output] : miniBatch) {
+            feedForward(input, verbose);
+            batchOutput.push_back(output);
         }
-
-        return results;
+        backpropagate(batchOutput, learningRate, verbose);
     }
 
-    void backpropagate(std::vector<double> expected, std::vector<double> computed) {
+    void feedForward(std::vector<double> inputs, bool verbose) {
+        layers.at(0).putInput(inputs);
+        for(auto& layer : layers)
+            layer.feedForward(verbose);
+    }
+
+    void backpropagate(std::vector<double> expected, double learningRate, bool verbose) {
 
     }
 };
@@ -383,24 +332,24 @@ public:
 
 // for now, lets assume full connection between layers and only MSE cost function
 class NNBuilder {
-    std::vector<std::tuple<unsigned, double, std::shared_ptr<ActivationFunction>>> layers;
+    std::vector<LayerDef> layerDefs;
 public:
     NNBuilder& start() {
-        layers.clear();
+        layerDefs.clear();
         return *this;
     }
     NNBuilder& addLayer(unsigned size, double bias, ActivationType type) {
-        layers.emplace_back(std::make_tuple(size, bias, std::shared_ptr<ActivationFunction>(ActivationFunctionBuilder::get(type))));
+        layerDefs.emplace_back(std::make_tuple(size, bias, std::shared_ptr<ActivationFunction>(ActivationFunctionBuilder::get(type))));
         return *this;
     }
     NNBuilder& addInputLayer(unsigned size) {
-        if(layers.size())
+        if(layerDefs.size())
             return *this;
         return addLayer(size, 0, ActivationType::ID);
     }
     NeuralNetwork* build() {
-        auto ret = new NeuralNetwork(layers, std::shared_ptr<CostFunction>(new MSE()));
-        layers.clear();
+        auto ret = new NeuralNetwork(layerDefs, std::shared_ptr<CostFunction>(new MSE()));
+        layerDefs.clear();
         return ret;
     }
 };

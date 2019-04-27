@@ -105,6 +105,7 @@ public:
 
 class CostFunction {
 public:
+    // wrt yHat
     virtual double derivative(double y, double yHat) const = 0;
     virtual ~CostFunction() = default;
 };
@@ -135,34 +136,43 @@ class NeuralNetwork {
     class Node;
     typedef std::shared_ptr<Node> NodePtr;
     class Layer;
-    typedef std::shared_ptr<Layer> LayerPtr;
 
     std::vector<Layer> layers;
-    // todo: probably a vector as vals instead of a map would be better
-    std::shared_ptr<CostFunction> func;
-    static std::default_random_engine generator;
-    static std::uniform_real_distribution<double> distribution;
+    std::shared_ptr<CostFunction> costFunc;
+    unsigned long seed;
+    std::default_random_engine generator;
+    std::uniform_real_distribution<double> distribution;
 
     class Node {
+        std::string nodeId;
         double bias;
-        double input;
-//        double output;
-//        std::vector<NodePtr> inputNodes;
-        std::map<NodePtr, double> outgoingEdges;
-        std::shared_ptr<ActivationFunction> func;
+        double output;
+        double outputDerivative;
+        double dErrordActi; // the derivative of the cost function wrt the
+        std::map<NodePtr, double> incomingEdges;
+        std::shared_ptr<ActivationFunction> activationFunc;
 
     public:
-        Node(double bias, std::shared_ptr<ActivationFunction> func) : bias(bias), func(std::move(func)) { }
+        Node(std::string nodeId, double bias, std::shared_ptr<ActivationFunction> func) : nodeId(std::move(nodeId)), bias(bias), output(0), outputDerivative(0), dErrordActi(0), activationFunc(std::move(func)) { }
 
-        void putInput(double x) { input += x; }
+        void putInputNode(NodePtr nPtr, double weight) {
+            if(incomingEdges.find(nPtr) == incomingEdges.end())
+                incomingEdges.emplace(nPtr, weight);
+            else
+                incomingEdges[nPtr] = weight;
+        }
 
-        void putOutputNode(NodePtr nPtr, double weight) { outgoingEdges.emplace(nPtr, weight); }
+        double getOutput() const { return output; }
+
+        void setOutput(double output2) { output = output2; }
+
+        bool isInputNode() const { return incomingEdges.empty(); }
 
         void print() {
-            std::cout << "[b:{" << bias << "}";
-            if(!outgoingEdges.empty()) {
+            std::cout << "[n:{" << nodeId << "},b:{" << bias << "}";
+            if(!incomingEdges.empty()) {
                 std::cout << ",w:{";
-                for(auto const& [node, weight] : outgoingEdges) {
+                for(auto const& [node, weight] : incomingEdges) {
                     std::cout << weight << ",";
                 }
                 std::cout << "}";
@@ -170,22 +180,29 @@ class NeuralNetwork {
             std::cout << "]";
         }
 
-        void feedForward(bool verbose) {
-            for(auto& [node, weight]: outgoingEdges) {
-                node.get()->putInput(compute(weight));
-
-                if(verbose)
-                    node.get()->print();
+        double feedForward(bool verbose) {
+            double result = 0;
+            for(auto& [node, weight]: incomingEdges) {
+                result += weight*node.get()->getOutput();
             }
+            if(verbose)
+                print();
+            output = activationFunc->value(result);
+            outputDerivative = activationFunc->derivative(result);
+            return result;
         }
 
-        double compute(double weight) {
-            return func->value(weight*input + bias);
+        void updateErrorDerivative(double val) { dErrordActi += val; }
+
+        void updateWeights(double learningRate) {
+            for(auto [node, weight] : incomingEdges) {
+                double incomingVal = node.get()->getOutput();
+                node.get()->updateErrorDerivative(weight*outputDerivative*dErrordActi);
+                weight -= learningRate*(incomingVal*outputDerivative*dErrordActi); // + alpha*weight
+                incomingEdges[node] = weight;
+            }
+            dErrordActi = 0;
         }
-
-        void backpropagate() {
-
-        };
     };
 
     class Layer {
@@ -201,23 +218,26 @@ class NeuralNetwork {
 
         bool isEmpty() const { return nodes.empty(); }
 
-        Layer(unsigned layerNum, const LayerDef& layerDef, const Layer& nextLayer) : layerNum(layerNum) {
+        Layer(unsigned layerNum, const LayerDef& layerDef, const Layer& prevLayer, std::default_random_engine generator,
+                std::uniform_real_distribution<double> distribution) : layerNum(layerNum) {
             auto& [size, bias, activationFunc, wiring] = layerDef;
             bool emptyWiring = wiring.empty();
             for(unsigned i = 0; i < size; ++i) {
-                auto n = Node(bias, activationFunc);
+                std::string nodeId = "n(" + std::to_string(layerNum) + "," + std::to_string(i) + ")";
+                auto n = Node(nodeId , bias, activationFunc);
                 auto nPtr = std::make_shared<Node>(n);
-                if(!nextLayer.isEmpty()) {
+                if(!prevLayer.isEmpty()) {
                     if(emptyWiring) {
-                        for (auto &nPtr2 : nextLayer.getNodes())
-                            nPtr.get()->putOutputNode(nPtr2, distribution(generator));
+                        auto nodes2 = prevLayer.getNodes();
+                        for(auto &nPtr2 : nodes2)
+                            nPtr.get()->putInputNode(nPtr2, distribution(generator));
                     } else {
                         if(wiring.find(i) != wiring.end()) {
                             auto& iVec = wiring.at(i);
                             for(auto& i2 : iVec) {
-                                auto nPtr2 = nextLayer.getNode(i2);
+                                auto nPtr2 = prevLayer.getNode(i2);
                                 if(nPtr2 != nullptr)
-                                    nPtr.get()->putOutputNode(nPtr2, distribution(generator));
+                                    nPtr.get()->putInputNode(nPtr2, distribution(generator));
                             }
                         }
 
@@ -231,7 +251,14 @@ class NeuralNetwork {
             assert(input.size() == nodes.size());
 
             for(unsigned i = 0; i < input.size(); ++i)
-                nodes.at(i).get()->putInput(input.at(i));
+                if(nodes.at(i).get()->isInputNode())
+                    nodes.at(i).get()->setOutput(input.at(i));
+        }
+
+        void print() const {
+            std::cout << "LAYER " << layerNum << ": ";
+            for(auto& node : nodes)
+                node.get()->print();
         }
 
         void feedForward(bool verbose) {
@@ -240,25 +267,45 @@ class NeuralNetwork {
             for(auto& node : nodes)
                 node.get()->feedForward(verbose);
         }
+
+        std::vector<double> getOutput() const {
+            std::vector<double> result;
+            for(auto& node : nodes)
+                result.push_back(node.get()->getOutput());
+            return result;
+        }
+
+        void backpropagate(double learningRate, bool verbose) {
+            for(auto& node : nodes)
+                node.get()->updateWeights(learningRate);
+        }
+
+        void updateErrorDerivatives(const std::vector<double>& expected, const std::shared_ptr<CostFunction>& localCostFunc) {
+            assert(expected.size() == nodes.size());
+            for(unsigned i = 0; i < expected.size(); ++i) {
+                double expectedVal = expected.at(i);
+                double predictedVal = nodes.at(i).get()->getOutput();
+                nodes.at(i)->updateErrorDerivative(localCostFunc.get()->derivative(expectedVal, predictedVal));
+            }
+        }
     };
 
 public:
     NeuralNetwork(std::vector<LayerDef> &layerDefs,
-                  std::shared_ptr<CostFunction> func) : func(std::move(func)) {
+                  std::shared_ptr<CostFunction> func) : costFunc(std::move(func)) {
         // todo: better generation of randomized weights with better seeding + should this be here or in builder?
-        unsigned long seed = (unsigned long) std::chrono::system_clock::now().time_since_epoch().count();
+        seed = (unsigned long) std::chrono::system_clock::now().time_since_epoch().count();
         generator.seed(seed);
         distribution = std::uniform_real_distribution<double>(-1.0,1.0);
 
-        Layer nextLayer; // defaults to an empty layer with dft constructor
+        Layer prevLayer; // defaults to an empty layer with dft constructor
         unsigned layerCount = 0;
-        std::reverse(layerDefs.begin(), layerDefs.end()); // we go from end to beginning
         for(auto const& layerDef: layerDefs) {
             // Create new node layer
-            Layer currLayer(layerCount, layerDef, nextLayer);
+            Layer currLayer(layerCount, layerDef, prevLayer, generator, distribution);
             layers.push_back(currLayer);
 
-            nextLayer = currLayer;
+            prevLayer = currLayer;
             layerCount++;
         }
     }
@@ -267,6 +314,8 @@ public:
 
     void train(Data trainingData, unsigned epochs, unsigned miniBatchSize, double learningRate, bool verbose) {
         for(unsigned i = 0; i < epochs; ++i) {
+            if(verbose)
+                std::cout << "Epoch " << i << " starting\n\n";
 
             // shuffle training data
             std::shuffle(trainingData.begin(), trainingData.end(), generator);
@@ -284,8 +333,15 @@ public:
         }
     }
 
-    std::vector<double> predict(std::vector<double> inputs, bool verbose) {
+    // todo:
+//    std::vector<double> predict(std::vector<double> inputs, bool verbose) {
+//
+//    }
 
+    void print() {
+        std::cout << "Printing neural network\n";
+        for(const auto& layer : layers)
+            layer.print();
     }
 
 private:
@@ -306,28 +362,33 @@ private:
     }
 
     void train(const Data& miniBatch, double learningRate, bool verbose) {
-        std::vector<double> batchOutput;
+        std::vector<double> expected;
         for(const auto& [input, output] : miniBatch) {
             feedForward(input, verbose);
-            batchOutput.push_back(output);
+            expected.push_back(output);
         }
-        backpropagate(batchOutput, learningRate, verbose);
+
+        backpropagate(expected, learningRate, verbose);
     }
 
-    void feedForward(std::vector<double> inputs, bool verbose) {
+    std::vector<double> feedForward(std::vector<double> inputs, bool verbose) {
         layers.at(0).putInput(inputs);
         for(auto& layer : layers)
             layer.feedForward(verbose);
+        return layers.at(layers.size() - 1).getOutput();
     }
 
-    void backpropagate(std::vector<double> expected, double learningRate, bool verbose) {
-
+    void backpropagate(const std::vector<double>& expected, double learningRate, bool verbose) {
+        layers.at(layers.size() - 1).updateErrorDerivatives(expected, costFunc);
+        for(auto it = layers.rbegin(); it != layers.rend(); it++) {
+            it->backpropagate(learningRate, verbose);
+        }
     }
 };
 
 class ConcurrentNeuralNetwork: public NeuralNetwork {
 public:
-    ConcurrentNeuralNetwork() = default;
+    ConcurrentNeuralNetwork();
 };
 
 // for now, lets assume full connection between layers and only MSE cost function
@@ -339,11 +400,11 @@ public:
         return *this;
     }
     NNBuilder& addLayer(unsigned size, double bias, ActivationType type) {
-        layerDefs.emplace_back(std::make_tuple(size, bias, std::shared_ptr<ActivationFunction>(ActivationFunctionBuilder::get(type))));
+        layerDefs.emplace_back(std::make_tuple(size, bias, std::shared_ptr<ActivationFunction>(ActivationFunctionBuilder::get(type)), std::map<int, int>()));
         return *this;
     }
     NNBuilder& addInputLayer(unsigned size) {
-        if(layerDefs.size())
+        if(!layerDefs.empty())
             return *this;
         return addLayer(size, 0, ActivationType::ID);
     }

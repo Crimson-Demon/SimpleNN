@@ -400,7 +400,8 @@ public:
         return *this;
     }
     NNBuilder& addLayer(unsigned size, double bias, ActivationType type) {
-        layerDefs.emplace_back(std::make_tuple(size, bias, std::shared_ptr<ActivationFunction>(ActivationFunctionBuilder::get(type)), std::map<int, int>()));
+        std::map<int, std::vector<int>> emptyMap;
+        layerDefs.emplace_back(std::make_tuple(size, bias, std::shared_ptr<ActivationFunction>(ActivationFunctionBuilder::get(type)), emptyMap));
         return *this;
     }
     NNBuilder& addInputLayer(unsigned size) {

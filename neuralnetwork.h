@@ -259,6 +259,7 @@ class NeuralNetwork {
             std::cout << "LAYER " << layerNum << ": ";
             for(auto& node : nodes)
                 node.get()->print();
+            std::cout << std::endl;
         }
 
         void feedForward(bool verbose) {
@@ -266,6 +267,8 @@ class NeuralNetwork {
                 std::cout << "LAYER " << layerNum << ": ";
             for(auto& node : nodes)
                 node.get()->feedForward(verbose);
+            if(verbose)
+                std::cout << std::endl;
         }
 
         std::vector<double> getOutput() const {
@@ -324,24 +327,31 @@ public:
             std::vector<Data> miniBatches = prepareBatches(trainingData, miniBatchSize);
 
             // train on mini batches
+            unsigned j = 0;
             for(auto& miniBatch: miniBatches) {
+                if(verbose)
+                    std::cout << "Training on minibatch " << j << std::endl;
                 train(miniBatch, learningRate, verbose);
+                j++;
             }
 
             if(verbose)
-                std::cout << "Epoch " << i << " finished\n\n";
+                std::cout << "\nEpoch " << i << " finished\n\n";
         }
     }
 
-    // todo:
-//    std::vector<double> predict(std::vector<double> inputs, bool verbose) {
-//
-//    }
+    std::vector<std::vector<double>> predict(const std::vector<std::vector<double>>& input, bool verbose) {
+        std::vector<std::vector<double>> res;
+        for(auto& in : input)
+            res.push_back(feedForward(in, verbose));
+        return res;
+    }
 
     void print() {
         std::cout << "Printing neural network\n";
         for(const auto& layer : layers)
             layer.print();
+        std::cout << std::endl;
     }
 
 private:

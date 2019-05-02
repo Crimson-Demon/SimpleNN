@@ -148,7 +148,7 @@ class NeuralNetwork {
         double bias;
         double output;
         double outputDerivative;
-        double dErrordActi; // the derivative of the cost function wrt the
+        double dErrordActi; // the derivative of the cost function wrt the activation value
         std::map<NodePtr, double> incomingEdges;
         std::shared_ptr<ActivationFunction> activationFunc;
 
@@ -162,6 +162,8 @@ class NeuralNetwork {
                 incomingEdges[nPtr] = weight;
         }
 
+        std::string getId() const { return nodeId; };
+
         double getOutput() const { return output; }
 
         void setOutput(double output2) { output = output2; }
@@ -169,15 +171,15 @@ class NeuralNetwork {
         bool isInputNode() const { return incomingEdges.empty(); }
 
         void print() {
-            std::cout << "[n:{" << nodeId << "},b:{" << bias << "}";
+            std::cout << "[n:{" << nodeId << ",b:" << bias;
             if(!incomingEdges.empty()) {
-                std::cout << ",w:{";
+                std::cout << ",e:[";
                 for(auto const& [node, weight] : incomingEdges) {
-                    std::cout << weight << ",";
+                    std::cout << "n:{" << node.get()->getId() << "},w:" << weight << ",";
                 }
-                std::cout << "}";
+                std::cout << "]";
             }
-            std::cout << "]";
+            std::cout << "]\n";
         }
 
         double feedForward(bool verbose) {
@@ -256,7 +258,7 @@ class NeuralNetwork {
         }
 
         void print() const {
-            std::cout << "LAYER " << layerNum << ": ";
+            std::cout << "LAYER " << layerNum << ": \n";
             for(auto& node : nodes)
                 node.get()->print();
             std::cout << std::endl;
@@ -264,7 +266,7 @@ class NeuralNetwork {
 
         void feedForward(bool verbose) {
             if(verbose)
-                std::cout << "LAYER " << layerNum << ": ";
+                std::cout << "LAYER " << layerNum << ": \n";
             for(auto& node : nodes)
                 node.get()->feedForward(verbose);
             if(verbose)
@@ -374,7 +376,13 @@ private:
     void train(const Data& miniBatch, double learningRate, bool verbose) {
         std::vector<double> expected;
         for(const auto& [input, output] : miniBatch) {
-            feedForward(input, verbose);
+            auto predicted = feedForward(input, verbose);
+            if(verbose) {
+                std::cout << "PREDICTED[";
+                for (auto &elem: predicted)
+                    std::cout << elem << ", ";
+                std::cout << "]" << std::endl;
+            }
             expected.push_back(output);
         }
 

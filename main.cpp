@@ -7,7 +7,7 @@ int main() {
     auto *nn = builder
             .start()
             .addInputLayer(3)
-            .addLayer(4, 0.5, ActivationType::SIGM)
+            .addLayer(3, 0.5, ActivationType::SIGM)
             .addLayer(1, -0.5, ActivationType::RELU)
             .build();
     Data data = {{{0.91, 0.22, 0.63}, 0.5},
